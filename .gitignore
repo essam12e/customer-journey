@@ -1,0 +1,8 @@
+.next/
+node_modules/
+.next-test.pid
+.build.log
+.server.log
+*.tsbuildinfo
+next-env.d.ts
+dist-artifact/

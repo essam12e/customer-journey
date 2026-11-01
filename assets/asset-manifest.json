@@ -1,0 +1,56 @@
+{
+  "artDirection": "assets/art-direction.md",
+  "worldScale": "1 unit = 1 m",
+  "assets": [
+    {
+      "id": "shelf",
+      "file": "public/models/shelf.glb",
+      "role": "section shelf (3 boards)",
+      "source": "scripts/build-assets.mjs (procedural, original)",
+      "license": "project-owned",
+      "collision": "proxy cuboid in engine (not mesh)",
+      "notes": "back panel material 'Back' is tinted per category at runtime",
+      "status": "approved-prototype"
+    },
+    {
+      "id": "counter",
+      "file": "public/models/counter.glb",
+      "role": "cashier counter",
+      "source": "scripts/build-assets.mjs (procedural, original)",
+      "license": "project-owned",
+      "collision": "proxy cuboid in engine (not mesh)",
+      "notes": "",
+      "status": "approved-prototype"
+    },
+    {
+      "id": "plant",
+      "file": "public/models/plant.glb",
+      "role": "decor plant",
+      "source": "scripts/build-assets.mjs (procedural, original)",
+      "license": "project-owned",
+      "collision": "proxy cuboid in engine (not mesh)",
+      "notes": "",
+      "status": "approved-prototype"
+    },
+    {
+      "id": "lamp",
+      "file": "public/models/lamp.glb",
+      "role": "pendant lamp (origin at ceiling)",
+      "source": "scripts/build-assets.mjs (procedural, original)",
+      "license": "project-owned",
+      "collision": "proxy cuboid in engine (not mesh)",
+      "notes": "Shade is open-ended; engine sets side=DoubleSide",
+      "status": "approved-prototype"
+    },
+    {
+      "id": "bench",
+      "file": "public/models/bench.glb",
+      "role": "outdoor bench",
+      "source": "scripts/build-assets.mjs (procedural, original)",
+      "license": "project-owned",
+      "collision": "proxy cuboid in engine (not mesh)",
+      "notes": "",
+      "status": "approved-prototype"
+    }
+  ]
+}
