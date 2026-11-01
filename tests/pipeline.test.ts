@@ -172,6 +172,19 @@ await t("sitemap: newest products first (lastmod), Shopify-style oldest-first or
   assert.deepEqual(urls.map((u) => u.split("/").pop()), ["new", "mid", "old"]);
 });
 
+await t("numbered product sitemaps: newest part first; in-stock products placed first", async () => {
+  const seen: string[] = [];
+  const f = async (url: string) => {
+    seen.push(url);
+    if (url.endsWith("/sitemap.xml")) return res(`<sitemapindex><sitemap><loc>https://s.com/sitemap_products_1.xml?from=1</loc></sitemap><sitemap><loc>https://s.com/sitemap_pages_1.xml</loc></sitemap><sitemap><loc>https://s.com/sitemap_products_3.xml?from=9</loc></sitemap></sitemapindex>`, 200, "application/xml");
+    return res(`<urlset><url><loc>https://s.com/products/x</loc></url></urlset>`, 200, "application/xml");
+  };
+  await discoverProductUrls(f, "https://s.com", { allows: () => true, sitemaps: [] }, Date.now() + 5000);
+  assert.ok(seen[1].includes("sitemap_products_3"), seen.join(" "));
+  const st = normalizeStore({ ...DEMO_STORE, products: [{ id: "a", title: "a", price: 1, available: false }, { id: "b", title: "b", price: 1 }] });
+  assert.deepEqual(st.products.map((p) => p.id), ["b", "a"]);
+});
+
 console.log("crawler + large catalogues");
 const productPage = (i: number, cat: string) => `<html><head>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"منتج ${i}","sku":"s${i}","image":"https://cdn.x/${i}.jpg",

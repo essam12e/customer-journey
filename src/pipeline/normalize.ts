@@ -86,6 +86,9 @@ export function normalizeStore(raw: RawStoreData, maxProducts = 216): Normalized
     if (products.length >= maxProducts) break;
   }
 
+  // merchandising: in-stock products get the eye-level slots (stable sort keeps the store's order otherwise)
+  products.sort((a, b) => Number(b.available) - Number(a.available));
+
   // no categories published at all → try inferring sections from product names
   if (categories.size === 1 && categories.has("منتجات-مختارة") && products.length > 12) {
     const inferred = inferCategories(products.map((p) => p.name));

@@ -58,7 +58,9 @@ export async function discoverProductUrls(fetcher: Fetcher, origin: string, robo
   const products: { url: string; lastmod: number; order: number }[] = [];
   let fetched = 0;
   while (queue.length && fetched < CRAWL.MAX_SITEMAPS && Date.now() < deadline && products.length < CRAWL.MAX_PAGES * 3) {
-    queue.sort((a, b) => Number(/product/i.test(b)) - Number(/product/i.test(a)));
+    // product sitemaps first; among numbered parts (sitemap_products_1..N) the highest = newest
+    const part = (u: string) => Number(u.match(/products?[_-]?(\d+)/i)?.[1] ?? 0);
+    queue.sort((a, b) => Number(/product/i.test(b)) - Number(/product/i.test(a)) || part(b) - part(a));
     const url = queue.shift()!;
     if (seen.has(url)) continue;
     seen.add(url);
