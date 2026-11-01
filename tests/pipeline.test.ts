@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { buildLayout } from "../src/pipeline/index.ts";
 import { DEMO_STORE } from "../src/pipeline/demoStore.ts";
-import { normalizeStore, parsePrice } from "../src/pipeline/normalize.ts";
+import { inferCategories, normalizeStore, parsePrice } from "../src/pipeline/normalize.ts";
 import { detectTheme } from "../src/pipeline/theme.ts";
 import { extractStore, detectPlatform } from "../src/pipeline/extract/index.ts";
 import { parseJsonLdHtml } from "../src/pipeline/extract/jsonld.ts";
@@ -152,6 +152,16 @@ await t("Salla storefront on a custom domain with no public product data → cle
     "oud.example/": () => res(`<html><head><meta property="og:type" content="store"><link href="https://cdn.salla.network/t.css"></head></html>`, 200, "text/html"),
   }) });
   assert.ok(!r.ok && r.error.kind === "auth_required" && r.error.message.includes("سلة"), JSON.stringify(r));
+});
+
+await t("uncategorised catalogues get sections from product names; tiny CDN thumbnails are upscaled", () => {
+  const names = ["Women's Wool Runner", "Women's Tree Runner", "Women's Tree Piper", "Men's Wool Runner", "Men's Tree Runner",
+    "Men's Tree Skipper", "Women's Tree Breezer", "Smallbirds Wool Loungers", "Anytime Crew Sock", "Women's Tree Dasher", "Men's Canvas Pacer", "Women's Tree Skipper", "Men's Tree Dasher"];
+  const s = normalizeStore({ platform: "jsonld", sourceUrl: "https://x.com", themeColorHints: [], products: names.map((n, i) => ({ id: `${i}`, title: n, price: 10, imageUrl: "https://x.com/cdn/shop/files/a.png?v=1&width=100" })) });
+  assert.deepEqual(s.categories.map((c) => c.name).sort(), ["Men's", "Women's", "منوعات"].sort());
+  assert.match(s.products[0].image, /width=600/);
+  const ar = inferCategories(["عطر الورد", "عطر العود", "دهن عود كمبودي", "دهن عود هندي", "بخور معطر", "بخور ملكي", "مسك أبيض"]);
+  assert.deepEqual(ar, ["عطر", "عطر", "دهن", "دهن", "بخور", "بخور", "منوعات"]);
 });
 
 console.log("crawler + large catalogues");
