@@ -17,5 +17,6 @@ export async function GET(req: Request) {
     } catch (e) { return { parseError: (e as Error).message, head: m[1].trim().slice(0, 160) }; }
   });
   const metas = [...html.matchAll(/<meta[^>]+>/gi)].map((m) => m[0]).filter((t) => /og:|product:|price|currency|twitter:/i.test(t)).slice(0, 25);
-  return NextResponse.json({ status: r.status, bytes: html.length, jsonld: blocks, metas, itemprop: (html.match(/itemprop=["'](price|name|image|priceCurrency)["']/gi) ?? []).slice(0, 10) });
+  const locs = [...html.matchAll(/<loc>\s*(?:<!\[CDATA\[)?\s*([^<\]\s]+)/gi)].map((m) => m[1]);
+  return NextResponse.json({ status: r.status, bytes: html.length, isSitemapIndex: /<sitemapindex/i.test(html), locCount: locs.length, locSample: [...locs.slice(0, 12), ...locs.slice(-4)], jsonld: blocks, metas, itemprop: (html.match(/itemprop=["'](price|name|image|priceCurrency)["']/gi) ?? []).slice(0, 10) });
 }
