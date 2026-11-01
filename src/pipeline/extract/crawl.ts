@@ -51,7 +51,9 @@ export async function discoverProductUrls(fetcher: Fetcher, origin: string, robo
     seen.add(url);
     let u: URL;
     try { u = new URL(url, origin); } catch { continue; }
-    if (u.origin !== origin && !u.hostname.endsWith(new URL(origin).hostname)) continue;
+    // follow the merchant's own sitemap index, including platform-hosted child sitemaps (e.g. salla.sa/<store>/sitemap-1.xml)
+    const platformHost = /(^|\.)(salla\.sa|zid\.store|myshopify\.com)$/i.test(u.hostname);
+    if (u.origin !== origin && !u.hostname.endsWith(new URL(origin).hostname) && !platformHost) continue;
     const r = await fetchClassified(fetcher, u.toString(), { headers: { accept: "application/xml,text/xml;q=0.9,*/*;q=0.5" } }, 6000);
     fetched++;
     if (!r.ok) continue;

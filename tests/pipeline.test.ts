@@ -145,6 +145,15 @@ await t("real-world shapes: Shopify ProductGroup JSON-LD and Open Graph-only pag
   assert.deepEqual([b.products[0].title, b.products[0].price, b.products[0].currency, b.products[0].imageUrl], ["Men's Tree Runner", "98.00", "USD", "https://cdn/y.png"]);
 });
 
+await t("Salla storefront on a custom domain with no public product data → clear auth_required", async () => {
+  const r = await extractStore("https://oud.example", { fetcher: mockFetch({
+    "/sitemap.xml": () => res(`<sitemapindex><sitemap><loc>https://salla.sa/oud/sitemap-1.xml</loc></sitemap></sitemapindex>`, 200, "application/xml"),
+    "salla.sa/oud/sitemap-1.xml": () => res(`<urlset><url><loc>https://salla.sa/oud/category/abc</loc></url></urlset>`, 200, "application/xml"),
+    "oud.example/": () => res(`<html><head><meta property="og:type" content="store"><link href="https://cdn.salla.network/t.css"></head></html>`, 200, "text/html"),
+  }) });
+  assert.ok(!r.ok && r.error.kind === "auth_required" && r.error.message.includes("سلة"), JSON.stringify(r));
+});
+
 console.log("crawler + large catalogues");
 const productPage = (i: number, cat: string) => `<html><head>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"منتج ${i}","sku":"s${i}","image":"https://cdn.x/${i}.jpg",

@@ -59,6 +59,10 @@ export async function extractPublic(fetcher: Fetcher, url: URL, platform: Platfo
     if (urls.length) products = dedupe([...products, ...(await crawlProducts(fetcher, urls, deadline))]);
   }
   if (products.length === 0) {
+    // Salla (Twilight) and Zid storefronts render the catalogue in the browser: the public HTML has
+    // no product data, so the only correct path is the platform's official app (merchant OAuth).
+    if (detected === "salla") return fail("auth_required", "هذا متجر على منصة سلة، وصفحاته لا تنشر بيانات المنتجات للقراءة العامة. لتحويله يلزم ربط تطبيق «رحلة العميل» من متجر تطبيقات سلة بموافقة التاجر.");
+    if (detected === "zid") return fail("auth_required", "هذا متجر على منصة زد، وصفحاته لا تنشر بيانات المنتجات للقراءة العامة. لتحويله يلزم ربط تطبيق «رحلة العميل» من سوق تطبيقات زد بموافقة التاجر.");
     return fail("no_products", "the store publishes no schema.org Product data on its pages or sitemap");
   }
   return ok({
