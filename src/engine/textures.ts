@@ -59,6 +59,13 @@ export function makePlankTexture(base = "#C08A5B") {
 
 /** Image texture that fails soft (CORS / 404 → coloured placeholder) instead of breaking the scene. */
 const cache = new Map<string, THREE.Texture<HTMLCanvasElement | HTMLImageElement>>();
+/** Remote store images go through the same-origin proxy so WebGL may use them. */
+export function textureSrc(url: string) {
+  if (process.env.NEXT_PUBLIC_STATIC === "1" || !/^https?:\/\//i.test(url)) return url;
+  if (typeof location !== "undefined" && url.startsWith(location.origin)) return url;
+  return `/api/image?url=${encodeURIComponent(url)}`;
+}
+
 export function loadSafeTexture(url: string, fallback: string): THREE.Texture {
   const key = url + fallback;
   if (cache.has(key)) return cache.get(key)!;
@@ -72,7 +79,7 @@ export function loadSafeTexture(url: string, fallback: string): THREE.Texture {
   img.crossOrigin = "anonymous";
   img.decoding = "async";
   img.onload = () => { tex.image = img; tex.needsUpdate = true; };
-  img.src = url;
+  img.src = textureSrc(url);
   cache.set(key, tex);
   return tex;
 }

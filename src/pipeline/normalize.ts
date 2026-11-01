@@ -19,7 +19,7 @@ export function slug(s: string): string {
 const PLACEHOLDER = "products/placeholder.svg";
 
 /** Stage 2 — Store Data Normalization. Pure function. */
-export function normalizeStore(raw: RawStoreData, maxProducts = 48): NormalizedStore {
+export function normalizeStore(raw: RawStoreData, maxProducts = 216): NormalizedStore {
   const currency = (raw.currency ?? raw.products.find((p) => p.currency)?.currency ?? "SAR").toUpperCase();
   const seen = new Set<string>();
   const products: NormalizedProduct[] = [];

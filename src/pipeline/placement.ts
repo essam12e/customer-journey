@@ -37,40 +37,77 @@ function sectionColor(theme: StoreTheme, i: number): string {
 
 /**
  * Stage 5 — Product Placement Engine. Deterministic: same store → same layout.
- * Categories fill sections in order (biggest first); products prefer eye-level boards (1, then 2, then 0).
+ * 1. If there are more categories than shelves, the smallest ones merge into «منوعات».
+ * 2. Every category gets one shelf; spare shelves go to the categories that overflow most.
+ * 3. Within a shelf, products prefer eye-level boards (1, then 2, then 0).
  */
 export function placeProducts(store: NormalizedStore, template: StoreTemplate, theme: StoreTheme): StoreLayout {
-  const byCat = new Map(store.categories.map((c) => [c.id, store.products.filter((p) => p.categoryId === c.id)]));
-  const cats = [...store.categories].sort((a, b) => (byCat.get(b.id)!.length - byCat.get(a.id)!.length) || a.name.localeCompare(b.name));
-
-  // Front-facing, most visible slots first: back wall, then islands, then side walls.
-  const order = ["back-left", "back-right", "island-left", "island-right", "left-wall", "right-wall"];
+  const order = ["back-left", "back-right", "island-left", "island-right", "island-left-back", "island-right-back",
+    "left-wall", "right-wall", "left-wall-back", "right-wall-back", "left-wall-front", "right-wall-front"];
   const slots = [...template.sections].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+
+  let groups = store.categories
+    .map((c) => ({ id: c.id, name: c.name, items: store.products.filter((p) => p.categoryId === c.id) }))
+    .filter((g) => g.items.length > 0)
+    .sort((a, b) => b.items.length - a.items.length || a.name.localeCompare(b.name));
+  // shelf allocation: keep as many categories as possible such that every product still fits
+  const cap = (s: SectionSlot) => s.levels * s.slotsPerLevel;
+  const avgCap = slots.length ? cap(slots[0]) : 1;
+  const need = (n: number) => Math.max(1, Math.ceil(n / avgCap));
+  const total = groups.reduce((n, g) => n + g.items.length, 0);
+  const fits = (k: number) => {
+    const kept = groups.slice(0, k).reduce((n, g) => n + need(g.items.length), 0);
+    const rest = groups.slice(k).reduce((n, g) => n + g.items.length, 0);
+    return kept + (rest ? need(rest) : 0) <= slots.length;
+  };
+  if (groups.length > slots.length || !fits(groups.length)) {
+    let k = Math.min(groups.length, slots.length - 1);
+    while (k > 0 && !fits(k)) k--;
+    if (total <= slots.length * avgCap || k > 0) {
+      const rest = groups.slice(k);
+      groups = [...groups.slice(0, k), ...(rest.length ? [{ id: "mixed", name: "منوعات", items: rest.flatMap((g) => g.items) }] : [])];
+    }
+  }
+  const alloc = groups.map((g) => need(g.items.length));
+  // shrink if still over (catalogue bigger than the store): trim the largest allocations
+  while (alloc.reduce((a, b) => a + b, 0) > slots.length) alloc[alloc.indexOf(Math.max(...alloc))]--;
+  let free = slots.length - alloc.reduce((a, b) => a + b, 0);
+  while (free > 0) {
+    let best = -1, bestOver = 0;
+    groups.forEach((g, i) => {
+      const over = g.items.length - alloc[i] * avgCap;
+      if (over > bestOver) { bestOver = over; best = i; }
+    });
+    if (best < 0) break;
+    alloc[best]++;
+    free--;
+  }
 
   const sections: PlacedSection[] = [];
   const products: PlacedProduct[] = [];
   const levelPref = [1, 2, 0];
-
-  // Assign each category to one slot; overflow categories share the last slots round-robin.
-  cats.forEach((cat, ci) => {
-    const sec = slots[ci % slots.length];
-    const color = sectionColor(theme, ci);
-    if (ci < slots.length) sections.push({ slotId: sec.id, categoryId: cat.id, title: cat.name, color });
-    const items = byCat.get(cat.id)!;
-    const perLevel = sec.slotsPerLevel;
-    items.slice(0, sec.levels * perLevel).forEach((p, i) => {
-      const level = levelPref[Math.floor(i / perLevel)];
-      // spread a small count evenly across the shelf instead of bunching left
-      const onThisLevel = Math.min(perLevel, items.length - Math.floor(i / perLevel) * perLevel);
-      const idx = i % perLevel;
-      products.push({
-        product: p,
-        position: slotPosition(sec, level, idx, onThisLevel),
-        rotationY: sec.rotationY,
-        shape: shapeFor(p.name, cat.name),
-        color,
+  let si = 0;
+  groups.forEach((g, gi) => {
+    const color = sectionColor(theme, gi);
+    let queue = g.items;
+    for (let k = 0; k < alloc[gi] && si < slots.length; k++) {
+      const sec = slots[si++];
+      sections.push({ slotId: sec.id, categoryId: g.id, title: g.name, color });
+      const here = queue.slice(0, cap(sec));
+      queue = queue.slice(cap(sec));
+      const perLevel = sec.slotsPerLevel;
+      here.forEach((p, i) => {
+        const row = Math.floor(i / perLevel);
+        const onThisLevel = Math.min(perLevel, here.length - row * perLevel);
+        products.push({
+          product: p,
+          position: slotPosition(sec, levelPref[row], i % perLevel, onThisLevel),
+          rotationY: sec.rotationY,
+          shape: shapeFor(p.name, g.name),
+          color,
+        });
       });
-    });
+    }
   });
 
   return {

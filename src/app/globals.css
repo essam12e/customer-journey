@@ -250,3 +250,7 @@ kbd {
   position: absolute; bottom: calc(12px + var(--safe-b)); left: 50%; transform: translateX(-50%); z-index: 6; max-width: calc(100vw - 32px);
   background: var(--ink); color: #fff; padding: 8px 14px; border-radius: 12px; font-size: 13px; text-align: center; cursor: pointer;
 }
+.card-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px; }
+.import-busy { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink-soft); }
+.import-busy::before { content: ""; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--saffron); border-top-color: transparent; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

@@ -7,6 +7,9 @@ import { detectTheme } from "../src/pipeline/theme.ts";
 import { extractStore, detectPlatform } from "../src/pipeline/extract/index.ts";
 import { parseJsonLdHtml } from "../src/pipeline/extract/jsonld.ts";
 import { robotsAllows } from "../src/pipeline/extract/http.ts";
+import { breadcrumbCategory, loadRobots } from "../src/pipeline/extract/crawl.ts";
+import { detectPlatformFromHtml } from "../src/pipeline/extract/index.ts";
+import type { RawStoreData } from "../src/pipeline/types.ts";
 
 let passed = 0;
 async function t(name: string, fn: () => unknown) {
@@ -121,6 +124,87 @@ await t("generic store via schema.org JSON-LD", async () => {
   const L = buildLayout(r.value);
   assert.equal(L.store.name, "متجر ورد");
   assert.equal(L.products.length, 1);
+});
+
+console.log("crawler + large catalogues");
+const productPage = (i: number, cat: string) => `<html><head>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"منتج ${i}","sku":"s${i}","image":"https://cdn.x/${i}.jpg",
+"offers":{"@type":"Offer","price":"${10 + i}","priceCurrency":"SAR"}}</script>
+<script type="application/ld+json">{"@type":"BreadcrumbList","itemListElement":[{"position":1,"name":"الرئيسية"},{"position":2,"name":"${cat}"},{"position":3,"name":"منتج ${i}"}]}</script></head></html>`;
+const sallaSite = (n: number, robots = "User-agent: *\nDisallow: /cart\nDisallow: /*/p9*\nSitemap: https://shop.salla.sa/sitemap.xml") => mockFetch({
+  "/robots.txt": () => res(robots, 200, "text/plain"),
+  "/sitemap.xml": () => res(`<sitemapindex><sitemap><loc>https://shop.salla.sa/sitemap-pages.xml</loc></sitemap><sitemap><loc>https://shop.salla.sa/sitemap-products.xml</loc></sitemap></sitemapindex>`, 200, "application/xml"),
+  "/sitemap-products.xml": () => res(`<urlset>${Array.from({ length: n }, (_, i) => `<url><loc>https://shop.salla.sa/item-${i}/p${1000 + i}</loc></url>`).join("")}<url><loc>https://shop.salla.sa/x/p9999</loc></url></urlset>`, 200, "application/xml"),
+  "/sitemap-pages.xml": () => res(`<urlset><url><loc>https://shop.salla.sa/about</loc></url></urlset>`, 200, "application/xml"),
+  "/p": () => { return res(productPage(0, "x"), 200, "text/html"); },
+  "shop.salla.sa": () => res(`<html><head><title>متجر الورد</title><meta name="theme-color" content="#7a3b69"><script src="https://cdn.salla.network/x.js"></script></head></html>`, 200, "text/html"),
+});
+await t("salla store without OAuth: public sitemap + schema.org pages, robots respected", async () => {
+  let calls: string[] = [];
+  const base = sallaSite(12);
+  const fetcher = async (url: string, init?: RequestInit) => {
+    calls.push(url);
+    const m = url.match(/item-(\d+)\/p\d+/);
+    if (m) return res(productPage(+m[1], +m[1] % 2 ? "عطور" : "ورد"), 200, "text/html");
+    return base(url);
+  };
+  const r = await extractStore("https://shop.salla.sa", { fetcher });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.equal(r.value.platform, "salla");
+  assert.equal(r.value.products.length, 12);
+  assert.ok(!calls.some((c) => c.includes("p9999")), "fetched a robots-disallowed page");
+  const L = buildLayout(r.value);
+  assert.deepEqual(new Set(L.sections.map((s) => s.title)), new Set(["عطور", "ورد"]));
+  const h = (await import("../src/pipeline/theme.ts")).hexToHsl(L.theme.primary)!.h;
+  assert.ok(Math.abs(h - 315) < 3, `store hue lost: ${h}`); // brand colour #7a3b69 is kept
+});
+await t("crawler stops at the page cap", async () => {
+  let pages = 0;
+  const base = sallaSite(200);
+  const fetcher = async (url: string) => { if (/item-\d+/.test(url)) { pages++; return res(productPage(pages, "ورد"), 200, "text/html"); } return base(url); };
+  const r = await extractStore("https://shop.salla.sa", { fetcher });
+  assert.ok(r.ok);
+  assert.ok(pages <= 36, `${pages} pages fetched`);
+});
+await t("robots wildcard rules and breadcrumb categories", async () => {
+  const rb = await loadRobots(mockFetch({ "/robots.txt": () => res("User-agent: *\nDisallow: /*?sort=\nAllow: /products/\nDisallow: /", 200, "text/plain") }), "https://a.com");
+  assert.equal(rb.allows("/products/x"), true);
+  assert.equal(rb.allows("/about"), false);
+  assert.equal(breadcrumbCategory(productPage(1, "قهوة")), "قهوة");
+  assert.equal(detectPlatformFromHtml('<script src="https://cdn.shopify.com/s.js">'), "shopify");
+});
+const bigStore = (n: number, cats: number): RawStoreData => ({
+  platform: "jsonld", sourceUrl: "https://big.example", storeName: "كبير", themeColorHints: [], products:
+    Array.from({ length: n }, (_, i) => ({ id: `b${i}`, title: `منتج ${i}`, price: 10 + i, category: `قسم ${i % cats}` })),
+});
+await t("80 products in one category span several shelves of the market template", () => {
+  const L = buildLayout(bigStore(80, 1));
+  assert.equal(L.template.id, "cozy-market");
+  assert.equal(L.products.length, 80);
+  assert.ok(L.sections.length >= 5, `${L.sections.length} shelves`);
+});
+await t("216 products / 20 categories: fills every shelf, extra categories merge into منوعات, no overlaps", () => {
+  const L = buildLayout(bigStore(216, 20));
+  assert.equal(L.products.length, 216);
+  assert.equal(L.sections.length, 12);
+  assert.ok(L.sections.some((s) => s.title === "منوعات"));
+  const key = (p: { position: number[] }) => p.position.map((v) => v.toFixed(2)).join(",");
+  assert.equal(new Set(L.products.map(key)).size, 216, "two products share a slot");
+  const hw = L.template.width / 2, hd = L.template.depth / 2;
+  assert.ok(L.products.every((p) => Math.abs(p.position[0]) < hw && Math.abs(p.position[2]) < hd));
+});
+await t("market shelves do not overlap each other (2D footprints)", () => {
+  const secs = buildLayout(bigStore(216, 12)).template.sections;
+  const rect = (s: typeof secs[number]) => {
+    const along = Math.abs(Math.cos(s.rotationY)) > 0.5; // runs along X
+    const hx = along ? s.shelfLength / 2 : 0.28, hz = along ? 0.28 : s.shelfLength / 2;
+    return [s.x - hx, s.x + hx, s.z - hz, s.z + hz];
+  };
+  for (let i = 0; i < secs.length; i++) for (let j = i + 1; j < secs.length; j++) {
+    const a = rect(secs[i]), b = rect(secs[j]);
+    const overlap = a[0] < b[1] && b[0] < a[1] && a[2] < b[3] && b[2] < a[3];
+    assert.ok(!overlap, `${secs[i].id} overlaps ${secs[j].id}`);
+  }
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ", some FAILED" : ""}`);

@@ -42,7 +42,7 @@ export default function App() {
         <GameCanvas key={sceneKey} layout={layout} tier={tier} onContextLost={onContextLost} />
       </SceneBoundary>
       {notice && <div className="notice" role="status" onClick={() => setNotice(null)}>{notice}</div>}
-      {screen === "start" ? <StartScreen demo={demo} onLayout={setLayout} /> : (
+      {screen === "start" ? <StartScreen demo={demo} current={layout} onLayout={setLayout} /> : (
         <>
           <HUD />
           <ProductCard />

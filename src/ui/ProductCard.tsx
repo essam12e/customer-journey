@@ -43,7 +43,10 @@ export function ProductCard() {
             </div>
             <button ref={addBtn} id="add-to-cart" className="btn btn-primary" disabled={!p.available} onClick={add}>أضف إلى السلة</button>
           </div>
-          <button className="link-btn" onClick={close}>متابعة التجوّل</button>
+          <div className="card-links">
+            <button className="link-btn" onClick={close}>متابعة التجوّل</button>
+            {p.url && <a className="link-btn" href={p.url} target="_blank" rel="noopener noreferrer">عرض في المتجر الأصلي ↗</a>}
+          </div>
         </div>
       </article>
     </div>
