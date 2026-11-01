@@ -20,6 +20,23 @@ const isType = (o: Json, t: string) => {
   return ty === t || (Array.isArray(ty) && ty.includes(t));
 };
 
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+export function decodeEntities(v: string): string {
+  return v.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) =>
+    e[0] === "#" ? String.fromCodePoint(e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10)) : ENTITIES[e.toLowerCase()] ?? m);
+}
+
+/** <meta property|name="x" content="y"> in any attribute order, quote style or line layout. */
+export function metaContent(html: string, name: string): string | undefined {
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
+    if (!new RegExp(`(?:property|name|itemprop)\\s*=\\s*["']${esc}["']`, "i").test(tag)) continue;
+    const c = tag.match(/content\s*=\s*(?:"([^"]*)"|'([^']*)')/i);
+    if (c) return decodeEntities((c[1] ?? c[2] ?? "").trim());
+  }
+  return undefined;
+}
+
 export function parseJsonLdHtml(html: string, pageUrl: string): Omit<RawStoreData, "platform"> & { platform: "jsonld" } {
   const products: RawProduct[] = [];
   const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
@@ -32,13 +49,18 @@ export function parseJsonLdHtml(html: string, pageUrl: string): Omit<RawStoreDat
       continue;
     }
     for (const o of walk(data)) {
-      if (!isType(o, "Product")) continue;
-      const offers = (Array.isArray(o.offers) ? o.offers[0] : o.offers) as Json | undefined;
-      const img = Array.isArray(o.image) ? o.image[0] : o.image;
+      // Product, or ProductGroup (product with variants, e.g. newer Shopify themes)
+      if (!isType(o, "Product") && !isType(o, "ProductGroup")) continue;
+      if (isType(o, "Product") && o.isVariantOf) continue; // a variant listed inside its group
+      const variant = (Array.isArray(o.hasVariant) ? o.hasVariant[0] : undefined) as Json | undefined;
+      const offerSrc = o.offers ?? variant?.offers;
+      const offers = (Array.isArray(offerSrc) ? offerSrc[0] : offerSrc) as Json | undefined;
+      const imgSrc = o.image ?? variant?.image;
+      const img = Array.isArray(imgSrc) ? imgSrc[0] : imgSrc;
       const imageUrl = typeof img === "string" ? img : (img as Json | undefined)?.url as string | undefined;
       products.push({
         id: String(o.sku ?? o.productID ?? o["@id"] ?? `${products.length + 1}`),
-        title: String(o.name ?? "منتج"),
+        title: decodeEntities(String(o.name ?? "منتج")),
         price: (offers?.price ?? offers?.lowPrice ?? null) as string | number | null,
         currency: offers?.priceCurrency as string | undefined,
         imageUrl: imageUrl ? new URL(imageUrl, pageUrl).toString() : undefined,
@@ -49,8 +71,25 @@ export function parseJsonLdHtml(html: string, pageUrl: string): Omit<RawStoreDat
       });
     }
   }
-  const meta = (name: string) =>
-    html.match(new RegExp(`<meta[^>]+(?:name|property)=["']${name}["'][^>]+content=["']([^"']+)["']`, "i"))?.[1];
+  const meta = (name: string) => metaContent(html, name);
+  // Open Graph fallback: product pages that carry og:type=product + og:price:* but no JSON-LD
+  if (products.length === 0 && /product/i.test(meta("og:type") ?? "")) {
+    const price = meta("og:price:amount") ?? meta("product:price:amount");
+    const title = meta("og:title");
+    if (title && price) {
+      const img = meta("og:image:secure_url") ?? meta("og:image");
+      products.push({
+        id: meta("product:retailer_item_id") ?? meta("og:url") ?? pageUrl,
+        title,
+        price,
+        currency: meta("og:price:currency") ?? meta("product:price:currency"),
+        imageUrl: img ? new URL(img, pageUrl).toString() : undefined,
+        description: meta("og:description")?.slice(0, 220),
+        url: meta("og:url") ?? pageUrl,
+        available: !/out ?of ?stock|oos/i.test(meta("product:availability") ?? meta("og:availability") ?? ""),
+      });
+    }
+  }
   return {
     platform: "jsonld",
     sourceUrl: pageUrl,

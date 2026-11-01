@@ -126,6 +126,25 @@ await t("generic store via schema.org JSON-LD", async () => {
   assert.equal(L.products.length, 1);
 });
 
+await t("real-world shapes: Shopify ProductGroup JSON-LD and Open Graph-only pages", () => {
+  // structure observed on a live Shopify product page (allbirds.com), trimmed
+  const group = `<script type="application/ld+json">{"@context":"http://schema.org/","@type":"ProductGroup","productGroupID":"1","name":"Men&#39;s Wool Runner",
+    "image":["https://cdn/x.png"],"offers":{"@type":"AggregateOffer","lowPrice":"110.00","priceCurrency":"USD"},
+    "hasVariant":[{"@type":"Product","name":"v1","isVariantOf":{"@id":"#g"},"offers":{"@type":"Offer","price":"110.00","priceCurrency":"USD"}}]}</script>`;
+  const a = parseJsonLdHtml(group, "https://shop.example/products/x");
+  assert.equal(a.products.length, 1);
+  assert.equal(a.products[0].title, "Men's Wool Runner");
+  assert.equal(a.products[0].price, "110.00");
+  const og = `<meta property='og:site_name' content='Allbirds'><meta property='og:type' content='product'>
+    <meta property='og:title' content='Men&#39;s Tree Runner'><meta
+      property='og:price:amount'
+      content='98.00'
+    ><meta property='og:price:currency' content='USD'><meta property='og:image:secure_url' content='https://cdn/y.png'>`;
+  const b = parseJsonLdHtml(og, "https://shop.example/products/y");
+  assert.equal(b.storeName, "Allbirds");
+  assert.deepEqual([b.products[0].title, b.products[0].price, b.products[0].currency, b.products[0].imageUrl], ["Men's Tree Runner", "98.00", "USD", "https://cdn/y.png"]);
+});
+
 console.log("crawler + large catalogues");
 const productPage = (i: number, cat: string) => `<html><head>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"منتج ${i}","sku":"s${i}","image":"https://cdn.x/${i}.jpg",
