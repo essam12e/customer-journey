@@ -7,7 +7,7 @@ import { detectTheme } from "../src/pipeline/theme.ts";
 import { extractStore, detectPlatform } from "../src/pipeline/extract/index.ts";
 import { parseJsonLdHtml } from "../src/pipeline/extract/jsonld.ts";
 import { robotsAllows } from "../src/pipeline/extract/http.ts";
-import { breadcrumbCategory, loadRobots } from "../src/pipeline/extract/crawl.ts";
+import { breadcrumbCategory, discoverProductUrls, extractEntries, loadRobots } from "../src/pipeline/extract/crawl.ts";
 import { detectPlatformFromHtml } from "../src/pipeline/extract/index.ts";
 import type { RawStoreData } from "../src/pipeline/types.ts";
 
@@ -162,6 +162,14 @@ await t("uncategorised catalogues get sections from product names; tiny CDN thum
   assert.match(s.products[0].image, /width=600/);
   const ar = inferCategories(["عطر الورد", "عطر العود", "دهن عود كمبودي", "دهن عود هندي", "بخور معطر", "بخور ملكي", "مسك أبيض"]);
   assert.deepEqual(ar, ["عطر", "عطر", "دهن", "دهن", "بخور", "بخور", "منوعات"]);
+});
+
+await t("sitemap: newest products first (lastmod), Shopify-style oldest-first order handled", async () => {
+  const xml = `<urlset><url><loc>https://s.com/products/old</loc><lastmod>2013-01-01</lastmod></url>
+    <url><loc>https://s.com/products/new</loc><lastmod>2026-10-01T10:00:00Z</lastmod></url><url><loc>https://s.com/products/mid</loc><lastmod>2020-05-05</lastmod></url></urlset>`;
+  assert.equal(extractEntries(xml).length, 3);
+  const urls = await discoverProductUrls(mockFetch({ "/sitemap.xml": () => res(xml, 200, "application/xml") }), "https://s.com", { allows: () => true, sitemaps: [] }, Date.now() + 5000);
+  assert.deepEqual(urls.map((u) => u.split("/").pop()), ["new", "mid", "old"]);
 });
 
 console.log("crawler + large catalogues");

@@ -1,6 +1,6 @@
 import type { RawProduct } from "../types.ts";
 import { fetchClassified, type Fetcher } from "./http.ts";
-import { parseJsonLdHtml } from "./jsonld.ts";
+import { decodeEntities, metaContent, parseJsonLdHtml } from "./jsonld.ts";
 
 // Polite public-catalogue crawler for stores that publish schema.org Product data on product pages
 // (Salla, Zid, WooCommerce, Shopify and most custom stores do, for search engines).
@@ -34,7 +34,20 @@ export async function loadRobots(fetcher: Fetcher, origin: string): Promise<Robo
 const PRODUCT_URL = /\/(p\d{3,}|products?\/[^/?#]+|item\/[^/?#]+)(?:[/?#]|$)/i;
 
 export function extractLocs(xml: string): string[] {
-  return [...xml.matchAll(/<loc>\s*(?:<!\[CDATA\[)?\s*([^<\]\s]+)\s*(?:\]\]>)?\s*<\/loc>/gi)].map((m) => m[1].replace(/&amp;/g, "&"));
+  return extractEntries(xml).map((e) => e.loc);
+}
+
+/** <url>/<sitemap> entries with their optional <lastmod>, in document order. */
+export function extractEntries(xml: string): { loc: string; lastmod: number }[] {
+  const out: { loc: string; lastmod: number }[] = [];
+  for (const m of xml.matchAll(/<(url|sitemap)>([\s\S]*?)<\/\1>/gi)) {
+    const loc = m[2].match(/<loc>\s*(?:<!\[CDATA\[)?\s*([^<\]\s]+)/i)?.[1];
+    if (!loc) continue;
+    const lm = Date.parse(m[2].match(/<lastmod>\s*([^<\s]+)/i)?.[1] ?? "");
+    out.push({ loc: loc.replace(/&amp;/g, "&"), lastmod: Number.isFinite(lm) ? lm : 0 });
+  }
+  if (out.length === 0) for (const m of xml.matchAll(/<loc>\s*(?:<!\[CDATA\[)?\s*([^<\]\s]+)/gi)) out.push({ loc: m[1].replace(/&amp;/g, "&"), lastmod: 0 });
+  return out;
 }
 
 /** Finds product page URLs from robots.txt sitemaps (or /sitemap.xml), following sitemap indexes. */
@@ -42,7 +55,7 @@ export async function discoverProductUrls(fetcher: Fetcher, origin: string, robo
   const queue = robots.sitemaps.length ? [...robots.sitemaps] : [`${origin}/sitemap.xml`];
   // product sitemaps first (e.g. sitemap_products_1.xml, product-sitemap.xml)
   const seen = new Set<string>();
-  const products: string[] = [];
+  const products: { url: string; lastmod: number; order: number }[] = [];
   let fetched = 0;
   while (queue.length && fetched < CRAWL.MAX_SITEMAPS && Date.now() < deadline && products.length < CRAWL.MAX_PAGES * 3) {
     queue.sort((a, b) => Number(/product/i.test(b)) - Number(/product/i.test(a)));
@@ -58,16 +71,18 @@ export async function discoverProductUrls(fetcher: Fetcher, origin: string, robo
     fetched++;
     if (!r.ok) continue;
     const xml = await r.value.text();
-    const locs = extractLocs(xml);
-    if (/<sitemapindex/i.test(xml)) { queue.push(...locs); continue; }
-    for (const loc of locs) {
+    const entries = extractEntries(xml);
+    if (/<sitemapindex/i.test(xml)) { queue.push(...entries.map((e) => e.loc)); continue; }
+    for (const e of entries) {
       try {
-        const lu = new URL(loc);
-        if (PRODUCT_URL.test(lu.pathname) && robots.allows(lu.pathname)) products.push(lu.toString());
+        const lu = new URL(e.loc);
+        if (PRODUCT_URL.test(lu.pathname) && robots.allows(lu.pathname)) products.push({ url: lu.toString(), lastmod: e.lastmod, order: products.length });
       } catch { /* skip */ }
     }
   }
-  return [...new Set(products)];
+  // newest first (sitemaps are usually oldest-first, which surfaces discontinued items)
+  products.sort((a, b) => b.lastmod - a.lastmod || b.order - a.order);
+  return [...new Set(products.map((p) => p.url))];
 }
 
 /** Reads schema.org Product (+ BreadcrumbList category) from product pages, politely. */
@@ -83,7 +98,16 @@ export async function crawlProducts(fetcher: Fetcher, urls: string[], deadline: 
       const html = await r.value.text();
       const page = parseJsonLdHtml(html, url);
       const crumb = breadcrumbCategory(html);
-      for (const p of page.products.slice(0, 1)) out.push({ ...p, url: p.url ?? url, category: p.category ?? crumb });
+      const ogImage = metaContent(html, "og:image:secure_url") ?? metaContent(html, "og:image");
+      for (const p of page.products.slice(0, 1)) {
+        out.push({
+          ...p,
+          url: p.url ?? url,
+          category: p.category ?? crumb,
+          imageUrl: p.imageUrl ?? (ogImage ? new URL(ogImage, url).toString() : undefined),
+          description: p.description ? decodeEntities(p.description) : undefined,
+        });
+      }
     }
   };
   await Promise.all(Array.from({ length: CRAWL.CONCURRENCY }, worker));
